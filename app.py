@@ -148,22 +148,14 @@ with col_away:
         hide_index=True,
     )
 
-# st.dataframe(display_df, column_config=column_config, hide_index=True)
 from mplsoccer import PyPizza
 avg_cols = [f"avg_{col}" for col in selected_cols]
 playerId = 1294
-# values for corresponding parameters
-# The values are taken from the excellent fbref website (supplied by StatsBomb)
-#values = [99, 99, 87, 51, 62, 58, 45, 40, 27, 74, 77, 73]
-print(copy1[["avg_kpi_0"]]["avg_kpi_0"][0])
-#print(players_df[])
 values = copy1[["avg_kpi_0"]]["avg_kpi_0"][0]
 percentiles_df = players_df[avg_cols].rank(pct=True) * 100
 player_idx = players_df.index[players_df["playerId"] == playerId][0]
 player_name = players_df[players_df["playerId"] == playerId].playerName.iloc[0]
-print(player_name)
 values = percentiles_df.loc[player_idx].fillna(0).round(0).astype(int).tolist()
-print()
 labels = selected_kpis["details.label"].tolist()
 # instantiate PyPizza class
 baker = PyPizza(
