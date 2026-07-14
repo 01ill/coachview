@@ -1,9 +1,10 @@
 from settings import IMPECT_DIR
 import json
 import os
+import pathlib
 import pandas as pd
 
-def load_event_kpi(match_id=None) -> pd.DataFrame:
+def load_event_kpi(match_id) -> pd.DataFrame:
     event_kpi_path = os.path.join(IMPECT_DIR, 'events_kpis', f'events_kpis_{match_id}.json')
     with open(event_kpi_path) as f:
         data = json.load(f)
@@ -24,10 +25,16 @@ def load_kpi_def() -> pd.DataFrame:
     df_kpi_def = df_kpi_def[df_kpi_def["details.label"].notnull()]
     return df_kpi_def
 
-def load_player_kpi(match_id=None) -> pd.DataFrame:
+def load_player_kpi(match_id: list = None) -> pd.DataFrame:
     """
     Reads the player KPIs for specific match(es)
     """
+    if match_id is None:
+        kpi_dir = pathlib.Path(IMPECT_DIR) / "player_kpis"
+        match_id = sorted(
+            int(p.stem.removeprefix("player_kpis_"))
+            for p in kpi_dir.glob("player_kpis_*.json")
+        )
     df_kpi_all = pd.DataFrame()
     for id in match_id:
         path = os.path.join(IMPECT_DIR, 'player_kpis', f'player_kpis_{id}.json')
@@ -53,6 +60,8 @@ def kpi_long_df(matches, kpi_all=None):
         melt_side(kpi_all, "squadAway.players", "squadAway.id", "away")
     ], ignore_index=True)
     df["matchday"] = df["matchId"].map(matchday_map)
+    df["value90"] = df["value"] * (5400 / df["playDuration"])
+    print(df)
     return df
 
 def kpi_statistics(df: pd.DataFrame):
@@ -67,21 +76,36 @@ def kpi_statistics(df: pd.DataFrame):
     kpi_range = df.groupby("kpiId")["value"].agg(["min", "max"]).rename(index=lambda k: f"kpi_{int(k)}")
     return kpi_range
 
+def kpi_percentiles(playerStats: pd.DataFrame) -> pd.DataFrame:
+    avg90_cols = [c for c in playerStats.columns if c.startswith("avg_kpi90_")]
+    percentiles = playerStats[avg90_cols].rank(pct=True) * 100
+    percentiles.columns = [f"{c}_pct" for c in avg90_cols]
+    percentiles_position = playerStats.groupby("position")[avg90_cols].rank(pct=True) * 100
+    percentiles_position.columns = [f"{c}_pct_pos" for c in avg90_cols]
+    playerStats = pd.concat([playerStats, percentiles, percentiles_position], axis=1)
+    return playerStats
+
 def get_player_kpi(matches: pd.DataFrame, df=None, kpi_all=None):
     if kpi_all is None:
         kpi_all = load_player_kpi(matches.id)
     if df is None:
         df = kpi_long_df(matches, kpi_all)
-    all_matchdays = sorted(matches["matchDay.index"].unique())  # just a list of all matchday indices (from 0-33)
     # show for each matchday all kpis of the player
-    pivot = df.pivot_table(index=["id", "kpiId"], columns="matchday", values="value", aggfunc="first")#.reindex(columns=all_matchdays)  # value is value of kpi
+    pivot = df.pivot_table(index=["id", "kpiId"], columns="matchday", values="value", aggfunc="first")  # value is value of kpi
     pivot = pivot.apply(list, axis=1)  # convert all columns to list -> each row: playerId, kpiId, values
     pivot = pivot.unstack("kpiId")  # now each kpi has own column
     pivot.columns = [f"kpi_{int(c)}" for c in pivot.columns]  # rename so each kpiId has kip_ in front
     kpi_pivot = df.pivot_table(index="id", columns="kpiId", values="value", aggfunc="mean")  # calculate average for each kpi for each player
     kpi_pivot.columns = [f"avg_kpi_{int(c)}" for c in kpi_pivot.columns]
-    pivot = pivot.join(kpi_pivot, on="id").reset_index().rename(columns={"id": "playerId"})
+    
+    pivot90 = df.pivot_table(index=["id", "kpiId"], columns="matchday", values="value90", aggfunc="first")  # value is value of kpi
+    pivot90 = pivot90.apply(list, axis=1)  # convert all columns to list -> each row: playerId, kpiId, values
+    pivot90 = pivot90.unstack("kpiId")  # now each kpi has own column
+    pivot90.columns = [f"kpi90_{int(c)}" for c in pivot90.columns]  # rename so each kpiId has kip_ in front
+    kpi_pivot90 = df.pivot_table(index="id", columns="kpiId", values="value90", aggfunc="mean")  # calculate average for each kpi for each player
+    kpi_pivot90.columns = [f"avg_kpi90_{int(c)}" for c in kpi_pivot90.columns]
+    print(pivot90)
+    pivot = pivot.join(kpi_pivot, on="id").join(pivot90, on="id").join(kpi_pivot90, on="id").reset_index()
+    pivot = pivot.reset_index().rename(columns={"id": "playerId"})
+    print(pivot)
     return pivot
-
-def generate_radar_df(df: pd.DataFrame, kpi_list: list):
-    pass
