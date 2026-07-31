@@ -1,106 +1,77 @@
 import streamlit as st
-import os
-import json
-from settings import IMPECT_DIR, FREIBURG_ID
-import pandas as pd
+from settings import IMPECT_DIR, FREIBURG_ID, PLOTLY_CLUSTER
+from highlight_text import fig_text
+import matplotlib.pyplot as plt
 
-from data_helpers.kpi_helper import load_kpi_def, load_player_kpi, kpi_statistics, kpi_long_df, get_player_kpi, kpi_percentiles
-from data_helpers.player_helper import merge_playernames, merge_playerpositions
-from data_helpers.squad_helper import merge_squadnames_matches
+from data_helpers.kpi_helper import load_kpi_def
+from data_helpers.player_helper import load_players, player_pipeline, compute_scores
+from data_helpers.squad_helper import load_lineups
+from data_helpers.cluster_helper import prepare_dataset, cluster_silhuette, cluster_squad, bench_options, plot_cluster_plotly, label_clusters
+
+if "selected_start_player" not in st.session_state:
+    st.session_state.selected_start_player = None
+if "selected_substitute_player" not in st.session_state:
+    st.session_state.selected_substitute_player = None
 
 st.header("Match Preparation")
-
-matches_path = os.path.join(IMPECT_DIR, 'matches', 'matches_743.json')
-with open(matches_path) as f:
-    data = json.load(f)
-    #save it in dataframe
-df_matches = pd.json_normalize(data)
-df_matches = merge_squadnames_matches(df_matches)
-df_matches_scf = df_matches.loc[(df_matches["homeSquadId"] == FREIBURG_ID) | (df_matches["awaySquadId"] == FREIBURG_ID)]
-
 
 matches = st.session_state.matches
 selected_match = st.session_state.selected_match
 
-lineup_path = os.path.join(IMPECT_DIR, 'lineups', f'lineups_{selected_match.id}.json')
-with open(lineup_path) as f:
-    data = json.load(f)
-    #save it in dataframe
-df_lineup = pd.json_normalize(data)
-
-players_path = os.path.join(IMPECT_DIR, 'players', 'players_743.json')
-with open(players_path) as f:
-    data = json.load(f)
-    #save it in dataframe
-df_players = pd.json_normalize(data)
-
-
-# merge lineups with player names
-name_lookup = df_players.set_index("id")["commonname"].to_dict()
-home_players = df_lineup.loc[0, "squadHome.players"]
-away_players = df_lineup.loc[0, "squadAway.players"]
-df_lineup.at[0, "squadHome.players"] = pd.DataFrame(df_lineup.loc[0, "squadHome.players"]).merge(
-    df_players[["id", "commonname"]], on="id", how="left"
-)
-df_lineup.at[0, "squadAway.players"] = pd.DataFrame(df_lineup.loc[0, "squadAway.players"]).merge(
-    df_players[["id", "commonname"]], on="id", how="left"
-)
-#st.dataframe(df_lineup["squadAway.players"])
-
 df_kpi_def = load_kpi_def()
-#st.write(df_kpi_def)
-
+DEFAULT_KPI_LABELS = [
+    "Goals",
+    "Successful Passes",
+    "Bypassed Opponents",
+    "Ball Win Added Teammates",
+    "Ball Win Removed Opponents",
+    "Ball Win Number",
+    "Assists",
+    "Shot-based xG",
+    "Successful Passes",
+    "Won Ground Duels",
+    "Won Aerial Duels",
+    "Dribbles",
+    "Total Shots Blocked",
+]
 def select_kpis():
     kpi_def = df_kpi_def.reset_index(drop=True)
-    selected_kpis = st.multiselect("KPI Selector", kpi_def.index, format_func=lambda i: f"{kpi_def.loc[i, "details.label"]} - {kpi_def.loc[i, "details.definition"]}")
+    default_idx = kpi_def.index[kpi_def["details.label"].isin(DEFAULT_KPI_LABELS)].tolist()
+    selected_kpis = st.multiselect(
+        "KPI Selector",
+        kpi_def.index,
+        default=default_idx,
+        format_func=lambda i: f"{kpi_def.loc[i, "details.label"]} - {kpi_def.loc[i, "details.definition"]}")
     return kpi_def, kpi_def.loc[selected_kpis]
 
 kpi_def, selected_kpis = select_kpis()
 
-# print(kpi_def, selected_kpis)
-
-
-df_kpi_all = load_player_kpi(df_matches.id)
-long_df = kpi_long_df(df_matches, df_kpi_all)
-kpi_range = kpi_statistics(long_df)
-all_match_ids = df_kpi_all["matchId"].tolist()
-
-players_df = get_player_kpi(df_matches, long_df, df_kpi_all)
-players_df = merge_playernames(players_df)
-players_df = merge_playerpositions(players_df, long_df)
-players_df = kpi_percentiles(players_df)
-print(players_df)
-
-kpi_columns_all = [c for c in players_df.columns if c.startswith("kpi_")]
-n_matches = len(all_match_ids)
-# player_kpi sometimes returns just a None value instead of list with None
-for col in kpi_columns_all:
-    players_df[col] = players_df[col].apply(
-        lambda lst: [-10] * n_matches if not isinstance(lst, list)
-        else [float(x) if pd.notnull(x) else -10 for x in lst]
-    )
-
+players_df, long_df, kpi_range = player_pipeline(matches)
 selected_kpi_ids = selected_kpis["id"].tolist()
 selected_cols = [f"kpi90_{int(k)}" for k in selected_kpi_ids]
 selected_cols = [c for c in selected_cols if c in players_df.columns]
-
+avg_cols = [f"avg_{col}_pct" for col in selected_cols]
 label_map = dict(zip(
-    [f"kpi_{int(k)}" for k in selected_kpi_ids],
+    [f"kpi90_{int(k)}" for k in selected_kpi_ids],
     selected_kpis["details.label"]
 ))
+# now find the players of the specific match
+freiburg_is_home = selected_match.homeSquadId == FREIBURG_ID
+freiburg_players = load_players(FREIBURG_ID)
+# this finds all players which played for freiburg this season
+# gives wrong entries when a player has made a mid season transfer
+# TODO: match kpi event date with date of fixture and then only pick kpi from previous matches
+freiburg_player_ids = long_df[long_df["squadId"] == FREIBURG_ID]["id"].unique()
+lineup_df = load_lineups(selected_match.id)
+freiburg_starter_ids = [player["playerId"] for player in lineup_df.loc[0, "squadHome.startingPositions" if freiburg_is_home else "squadAway.startingPositions"]]
+players_df = players_df[players_df["playerId"].isin(freiburg_player_ids)]
+players_df["isStarter"] = players_df["playerId"].isin(freiburg_starter_ids)
+players_df = compute_scores(players_df, avg_cols)
 
-match_row = df_kpi_all[df_kpi_all["matchId"] == selected_match.id].iloc[0]
-
-home_ids = [p["id"] for p in match_row["squadHome.players"]]
-away_ids = [p["id"] for p in match_row["squadAway.players"]]
-
-squad_ids = set(home_ids) | set(away_ids)
-display_df = players_df[players_df["playerId"].isin(squad_ids)].copy()
-squad_side = {pid: "home" for pid in home_ids}
-squad_side.update({pid: "away" for pid in away_ids})
-display_cols = ["playerId", "playerName"] + selected_cols
+display_cols = ["playerName", "score", "playerPosition", "playerLine", "isStarter", "playerId"] + selected_cols
 display_df = players_df[display_cols]
-display_df["matchSide"] = display_df["playerId"].map(squad_side)
+start_df = display_df[display_df["isStarter"] == True].drop(columns="isStarter").reset_index(drop=True)
+substitute_df = display_df[display_df["isStarter"] == False].drop(columns="isStarter").reset_index(drop=True)
 
 def pad(lo, hi, frac=0.05):
     span = hi - lo
@@ -108,83 +79,176 @@ def pad(lo, hi, frac=0.05):
     return lo - p, hi + p
 
 column_config = {}
-for col in selected_cols:
-    y_min, y_max = pad(*kpi_range.loc[col, ["min", "max"]])
-    column_config[col] = st.column_config.LineChartColumn(
-        label=label_map[col],
-        width="medium",
-        y_min=-10, y_max=y_max,
-        color="auto"
-    )
+# for col in selected_cols:
+#     y_min, y_max = pad(*kpi_range.loc[col, ["min", "max"]])
+#     column_config[col] = st.column_config.LineChartColumn(
+#         label=label_map[col],
+#         width="medium",
+#         y_min=-10, y_max=y_max,
+#         color="auto"
+#     )
 
-col_home, col_away = st.columns(2)
-with col_home:
-    st.subheader("Home")
-    st.dataframe(
-        display_df[display_df["matchSide"] == "home"].drop(columns="matchSide"),
+col_starters, col_substitutes = st.columns(2)
+with col_starters:
+    st.subheader("Starting 11")
+    styled = start_df[["playerName", "playerPosition", "score"]].style.background_gradient(
+        subset=["score"],
+        cmap="RdYlGn",
+        vmin=0,
+        vmax=100
+    ).format({'score': '{:.1f}'})
+    start_player = st.dataframe(
+        styled,
         column_config=column_config,
         hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="start_table"
     )
+    if start_player.selection and start_player.selection["rows"]:
+        row_idx = start_player.selection["rows"][0]
+        st.session_state.selected_start_player = start_df.iloc[row_idx]["playerId"]
+    else:
+        st.session_state.selected_start_player = None
 
-with col_away:
-    st.subheader("Away")
-    st.dataframe(
-        display_df[display_df["matchSide"] == "away"].drop(columns="matchSide"),
+with col_substitutes:
+    st.subheader("Substitutes")
+    styled = substitute_df[["playerName", "playerPosition", "score"]].style.background_gradient(
+        subset=["score"],
+        cmap="RdYlGn",
+        vmin=0,
+        vmax=100
+    ).format({'score': '{:.1f}'})
+    substitute_player = st.dataframe(
+        styled,
         column_config=column_config,
         hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="substitute_table"
     )
+    if substitute_player.selection and substitute_player.selection["rows"]:
+        row_idx = substitute_player.selection["rows"][0]
+        st.session_state.selected_substitute_player = substitute_df.iloc[row_idx]["playerId"]
+    else:
+        st.session_state.selected_substitute_player = None
 
 from mplsoccer import PyPizza
-avg_cols = [f"avg90_{col}_pct_pos" for col in selected_cols]
-playerId = 1294
-player_idx = players_df.index[players_df["playerId"] == playerId][0]
-player_name = players_df[players_df["playerId"] == playerId].playerName.iloc[0]
-values = players_df[avg_cols]
-labels = selected_kpis["details.label"].tolist()
-# instantiate PyPizza class
-baker = PyPizza(
-    params=labels,                  # list of parameters
-    straight_line_color="#000000",  # color for straight lines
-    straight_line_lw=1,             # linewidth for straight lines
-    last_circle_lw=1,               # linewidth of last circle
-    other_circle_lw=1,              # linewidth for other circles
-    other_circle_ls="-."            # linestyle for other circles
-)
+# playerId = 68285
+playerId1 = st.session_state.selected_start_player
+playerId2 = st.session_state.selected_substitute_player
 
-# plot pizza
-fig, ax = baker.make_pizza(
-    values,              # list of values
-    figsize=(8, 8),      # adjust figsize according to your need
-    param_location=110,  # where the parameters will be added
-    kwargs_slices=dict(
-        facecolor="cornflowerblue", edgecolor="#000000",
-        zorder=2, linewidth=1
-    ),                   # values to be used when plotting slices
-    kwargs_params=dict(
-        color="#000000", fontsize=12,
-        va="center"
-    ),                   # values to be used when adding parameter
-    kwargs_values=dict(
-        color="#000000", fontsize=12,
-        zorder=3,
-        bbox=dict(
-            edgecolor="#000000", facecolor="cornflowerblue",
-            boxstyle="round,pad=0.2", lw=1
+if not selected_cols:
+    st.info("Pick at least one KPI to compare players")
+elif playerId1 is None or playerId2 is None:
+    st.info("Select two players to compare")
+else:
+    player_idx1 = players_df.index[players_df["playerId"] == playerId1][0]
+    player_idx2 = players_df.index[players_df["playerId"] == playerId2][0]
+    player_name1 = players_df[players_df["playerId"] == playerId1].playerName.iloc[0]
+    player_name2 = players_df[players_df["playerId"] == playerId2].playerName.iloc[0]
+    player_pos1 = players_df[players_df["playerId"] == playerId1].playerPosition.iloc[0]
+    player_pos2 = players_df[players_df["playerId"] == playerId2].playerPosition.iloc[0]
+    values1 = players_df.loc[players_df["playerId"] == playerId1, avg_cols].round(1).iloc[0].tolist()
+    values2 = players_df.loc[players_df["playerId"] == playerId2, avg_cols].round(1).iloc[0].tolist()
+    labels = selected_kpis["details.label"].tolist()
+    labels = [label_map[col] for col in selected_cols]
+    # instantiate PyPizza class
+    baker = PyPizza(
+        params=labels,                  # list of parameters
+        background_color="#ebebe9",
+        straight_line_color="#000000",  # color for straight lines
+        straight_line_lw=1,             # linewidth for straight lines
+        last_circle_lw=1,               # linewidth of last circle
+        other_circle_lw=1,              # linewidth for other circles
+        other_circle_ls="-.",            # linestyle for other circles
+        last_circle_color="#222222"
+    )
+
+    # plot pizza
+    fig, ax = baker.make_pizza(
+        values1,
+        compare_values=values2,
+        figsize=(9, 9),      # adjust figsize according to your need
+        #param_location=110,  # where the parameters will be added
+        kwargs_slices=dict(
+            facecolor="cornflowerblue", edgecolor="#222222",
+            zorder=2, linewidth=1
+        ),                   # values to be used when plotting slices
+        kwargs_compare=dict(
+            facecolor="#ff9300", edgecolor="#222222", zorder=2, linewidth=1
+        ),
+        kwargs_params=dict(
+            color="#000000", fontsize=12,
+            va="center"
+        ),                   # values to be used when adding parameter
+        kwargs_values=dict(
+            color="#000000", fontsize=12,
+            zorder=3,
+            bbox=dict(
+                edgecolor="#000000", facecolor="cornflowerblue",
+                boxstyle="round,pad=0.2", lw=1
+            )
+        ),                    # values to be used when adding parameter-values
+        kwargs_compare_values=dict(
+            color="#000000", fontsize=12, zorder=3,
+            bbox=dict(edgecolor="#000000", facecolor="#ff9300", boxstyle="round,pad=0.2", lw=1)
         )
-    )                    # values to be used when adding parameter-values
-)
+    )
 
-# add title
-fig.text(
-    0.515, 0.97, f"{player_name}", size=18,
-    ha="center", color="#000000"
-)
+    fig_text(
+        0.515, 0.99, f"<{player_name1}> vs <{player_name2}>", size=18, fig=fig,
+        highlight_textprops=[{"color": "#1a78cf"}, {"color": "#ee8900"}],
+        ha="center", color="#000000"
+    )
 
-# add subtitle
-fig.text(
-    0.515, 0.942,
-    "Percentile Rank vs League Forwards | Season 2023-24",
-    size=15,
-    ha="center", color="#000000"
-)
-st.pyplot(fig)
+    # add subtitle
+    fig.text(
+        0.515, 0.942,
+        f"Percentile Rank | Season 2023-24",
+        size=15,
+        ha="center", color="#000000"
+    )
+    st.pyplot(fig)
+
+st.subheader("Squad Clustering")
+
+target_player_id = st.session_state.selected_start_player
+if target_player_id is None:
+    st.info("Select a starting player above first.")
+elif selected_cols is None or len(selected_cols) < 2:
+    st.info("Select two or more KPIs to generate the clustering")
+else:
+    exclude_gk = st.checkbox("Exclude goalkeepers", value=True)
+    exclude_positions = ["GOALKEEPER"] if exclude_gk else None
+    cluster_df, X = prepare_dataset(players_df, freiburg_player_ids, avg_cols, exclude_positions)
+    best_k, _ = cluster_silhuette(X)
+    n_clusters = st.slider(f"Number of clusters. Best silhuette score: {best_k}", 2, min(8, len(cluster_df) - 1), best_k)
+
+    cluster_df = cluster_squad(cluster_df, X, n_clusters)
+    cluster_labels = label_clusters(cluster_df, avg_cols, label_map)
+    bench_ids = set(freiburg_player_ids) - set(freiburg_starter_ids)
+    options = bench_options(cluster_df, X, target_player_id, bench_only_ids=bench_ids)
+    only_benched = st.checkbox("Show only benched players", value=True)
+    if PLOTLY_CLUSTER:
+        fig = plot_cluster_plotly(cluster_df, cluster_labels, target_player_id, options, 3, only_benched)
+        st.plotly_chart(fig)
+    # else:
+    #     fig = plot_cluster(cluster_df, cluster_labels, target_player_id, options)
+    #     st.pyplot(fig)
+    #     plt.close(fig)
+    st.caption("Shape = line: ● DEF, ▲ MID, ◆ FWD, ■ GK. Ring = selected player.")
+
+    target_name = players_df.loc[players_df["playerId"] == target_player_id, "playerName"].iloc[0]
+    target_archetype = cluster_labels[cluster_df.loc[cluster_df["playerId"] == target_player_id, "cluster"].iloc[0]]
+    target_position = cluster_df.loc[cluster_df["playerId"] == target_player_id, "playerLine"].iloc[0]
+    st.write(f"Bench options for **{target_name}** ({target_position}, {target_archetype} archetype): same archetype, same line, or close distance:")
+    styled = options[["playerName", "playerLine", "distance", "score"]].rename(columns={"playerName": "Player", "playerPosition": "Position",
+                                        "distance": "Distance (lower = closer)", "score": "Score"}
+    ).style.background_gradient(
+        subset=["Score"], cmap="RdYlGn", vmin=0, vmax=100
+    ).background_gradient(
+        subset=["Distance (lower = closer)"], cmap="RdYlGn_r"
+    ).format({'Score': '{:.1f}', 'Distance (lower = closer)': "{:.2f}"})
+
+    st.dataframe(styled, hide_index=True)
