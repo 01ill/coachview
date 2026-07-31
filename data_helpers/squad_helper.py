@@ -20,7 +20,6 @@ def load_lineups(match_id: int):
     df_lineup = pd.json_normalize(data)
     return df_lineup
 
-@st.cache_data
 def merge_squadnames_matches(matches: pd.DataFrame, squads: pd.DataFrame = None) -> pd.DataFrame:
     if squads is None:
         squads = load_squads()

@@ -49,8 +49,6 @@ def merge_playerpositions(playerStats: pd.DataFrame, df: pd.DataFrame = None) ->
     playerStats["playerLine"] = playerStats["playerPosition"].map(POSITION_MAP)
     return playerStats
 
-
-
 def player_pipeline(matches):
     # we could also first load the player table
     # but as we load all matches we also find all players who have registered an KPI

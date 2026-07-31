@@ -23,11 +23,7 @@ def load_kpi_def() -> pd.DataFrame:
     """
     kpi_def_path = os.path.join(IMPECT_DIR, 'kpi_definitions.json')
     with open(kpi_def_path) as f:
-        data = json.load(f)
-        #save it in dataframe
-    df_kpi_def = pd.json_normalize(data)
-    df_kpi_def = df_kpi_def[df_kpi_def["details.label"].notnull()]
-    return df_kpi_def
+        return pd.json_normalize(json.load(f)).loc[lambda df: df["details.label"].notnull()]
 
 @st.cache_data
 def load_player_kpi(match_id: list = None) -> pd.DataFrame:
@@ -49,12 +45,33 @@ def load_player_kpi(match_id: list = None) -> pd.DataFrame:
     return df_kpi_all
 
 def melt_side(df, players_col: str, id_col: str, side: str) -> pd.DataFrame:
-    d = df[["matchId", id_col, players_col]].rename(columns={id_col: "squadId", players_col: "players"})
-    d["side"] = side
-    d = d.explode("players").reset_index(drop=True)
-    d = pd.concat([d.drop(columns="players"), pd.json_normalize(d["players"])], axis=1)
-    d = d.explode("kpis").reset_index(drop=True)
-    return pd.concat([d.drop(columns="kpis"), pd.json_normalize(d["kpis"])], axis=1)
+    return (
+        df[["matchId", id_col, players_col]]
+            .rename(columns={id_col: "squadId", players_col: "players"})
+            .assign(side=side)
+            .explode("players", ignore_index=True)  # make each player a row
+            .pipe(lambda frame: pd.concat([frame.drop(columns="players"), pd.json_normalize(frame["players"])], axis=1))  # normalize player data to columns
+            .explode("kpis").reset_index(drop=True)  # each player+kpi becomes a row
+            .pipe(lambda frame: pd.concat([frame.drop(columns="kpis"), pd.json_normalize(frame["kpis"])], axis=1))
+    )
+
+def merge_match_stints(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    we might have multiple entries for players in the kpi files
+    there is one entry for each player on each position
+    so if the position changes, there will be a new entry
+    """
+    return (
+        df.groupby(["id", "matchId", "kpiId"], sort=False, as_index=False)
+            .agg(  # aggregate each entry
+                matchday=("matchday", "first"),
+                squadId=("squadId", "first"),
+                side=("side", "first"),
+                position=("position", lambda s: s.mode().iat[0] if not s.mode().empty else s.iat[0]),
+                playDuration=("playDuration", "sum"),
+                value=("value", "sum")
+            )
+    )
 
 def kpi_long_df(matches, kpi_all=None):
     if kpi_all is None:
@@ -64,9 +81,9 @@ def kpi_long_df(matches, kpi_all=None):
         melt_side(kpi_all, "squadHome.players", "squadHome.id", "home"),
         melt_side(kpi_all, "squadAway.players", "squadAway.id", "away")
     ], ignore_index=True)
-    df["matchday"] = df["matchId"].map(matchday_map)
-    played_matches = df.drop_duplicates(subset=["id", "matchId"])[["id", "matchId", "matchday", "position", "squadId", "side", "playDuration"]]
+    df = df.assign(matchday=df["matchId"].map(matchday_map)).pipe(merge_match_stints)
     kpi_ids = df["kpiId"].dropna().unique()
+    played_matches = df.sort_values("playDuration", ascending=False).drop_duplicates(subset=["id", "matchId"])[["id", "matchId", "matchday", "position", "squadId", "side", "playDuration"]]
     grid = played_matches.merge(pd.DataFrame({"kpiId": kpi_ids}), how="cross")
     df = grid.merge(df[["id", "matchId", "kpiId", "value"]], on=["id", "matchId", "kpiId"], how="left")
     df["value"] = df["value"].fillna(0)
@@ -121,9 +138,9 @@ def get_player_kpi(matches: pd.DataFrame, df=None, kpi_all=None):
     pivot90 = pivot90.apply(lambda col: col.apply(lambda cell: _fix_nan(cell, len(matches))))
     kpi_pivot90 = df.pivot_table(index="id", columns="kpiId", values="value90", aggfunc="mean")  # calculate average for each kpi for each player
     kpi_pivot90.columns = [f"avg_kpi90_{int(c)}" for c in kpi_pivot90.columns]
-    pivot = pivot.join(kpi_pivot, on="id").join(pivot90, on="id").join(kpi_pivot90, on="id").reset_index()
-    pivot = pivot.reset_index().rename(columns={"id": "playerId"})
+    pivot = (pivot.join(kpi_pivot, on="id")
+        .join(pivot90, on="id")
+        .join(kpi_pivot90, on="id")
+        .reset_index()
+        .rename(columns={"id": "playerId"}))
     return pivot
-
-def calculate_score(player_stats: pd.DataFrame, kpi_list: list) -> pd.DataFrame:
-    pass
