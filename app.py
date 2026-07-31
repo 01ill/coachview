@@ -15,7 +15,7 @@ def sidebar_select_match():
     return matches, matches.loc[selected_match]
 
 main_page = st.Page("pages/main.py", title="Main Page")
-preparation_page = st.Page("pages/preparation.py", title="Preparation")
+preparation_page = st.Page("pages/substitutions.py", title="Substitutions")
 pg = st.navigation([main_page, preparation_page])
 
 matches, selected_match = sidebar_select_match()
