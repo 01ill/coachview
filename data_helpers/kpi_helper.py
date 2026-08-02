@@ -69,6 +69,9 @@ def load_player_kpi(match_id: list = None) -> pd.DataFrame:
     return df_kpi_all
 
 def melt_side(df, players_col: str, id_col: str, side: str) -> pd.DataFrame:
+    """
+    LLM
+    """
     return (
         df[["matchId", id_col, players_col]]
             .rename(columns={id_col: "squadId", players_col: "players"})
@@ -84,6 +87,8 @@ def merge_match_stints(df: pd.DataFrame) -> pd.DataFrame:
     we might have multiple entries for players in the kpi files
     there is one entry for each player on each position
     so if the position changes, there will be a new entry
+
+    with LLM help
     """
     return (
         df.groupby(["id", "matchId", "kpiId"], sort=False, as_index=False)
@@ -142,6 +147,9 @@ def _fix_nan(cell, count: int):
     return cell if isinstance(cell, list) else [nan] * count
 
 def get_player_kpi(matches: pd.DataFrame, df=None, kpi_all=None):
+    """
+    helped by LLM (mostly building the correct datastructure from the nested json)
+    """
     if kpi_all is None:
         kpi_all = load_player_kpi(matches.id)
     if df is None:
@@ -168,6 +176,9 @@ def get_player_kpi(matches: pd.DataFrame, df=None, kpi_all=None):
         .reset_index()
         .rename(columns={"id": "playerId"}))
     return pivot
+
+
+# extra kpi merge mostly done by LLM
 
 def load_extra_kpi() -> pd.DataFrame:
     return pd.read_csv(os.path.join(EXTRA_DATA_DIR, "player_match_features.csv"))

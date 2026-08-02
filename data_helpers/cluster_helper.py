@@ -62,6 +62,7 @@ def cluster_squad(cluster_df, X, n_clusters):
 def map_kpi_labels(avg_col, label_map):
     """
     Replace the KPI ID with the correct label
+    LLM used
     """
     base = avg_col[len("avg_"):] if avg_col.startswith("avg_") else avg_col
     base = base[:-len("_pct_pos")] if base.endswith("_pct_pos") else base
@@ -69,6 +70,9 @@ def map_kpi_labels(avg_col, label_map):
     return label_map.get(base, base)
 
 def label_clusters(cluster_df, feature_cols, label_map, top_n=1):
+    """
+    LLM used
+    """
     overall_mean = cluster_df[feature_cols].mean()  # calculate mean or each selected kpi
     labels = {}
     for cid, group in cluster_df.groupby("cluster"):  # go through all clusters
@@ -143,6 +147,9 @@ def bench_options(cluster_df, X, target_player_id, bench_only_ids=None, top_n=3)
 
 
 def plot_cluster_plotly(cluster_df, cluster_labels, highlight_player_id=None, bench_options=None, n_closest=3, only_benched=False):
+    """
+    LLM used for translating the pyplot figure to plotly (to have hover)
+    """
     plot_df = cluster_df.assign(archetype=cluster_df["cluster"].map(cluster_labels))
     if only_benched:
         plot_df = plot_df[(~plot_df["isStarter"]) | (plot_df["playerId"] == highlight_player_id)]

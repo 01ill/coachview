@@ -1,3 +1,9 @@
+"""
+LLM notice:
+- the functions where LLM use is indicated are predominantly written by LLM
+- all other code is mostly written by hand and details/bugs were fixed/helped with by LLM
+"""
+
 import streamlit as st
 from settings import FREIBURG_ID, PLOTLY_CLUSTER
 from highlight_text import fig_text
@@ -83,6 +89,7 @@ freiburg_starter_ids = [player["playerId"] for player in lineup_df.loc[0, "squad
 players_df = players_df[players_df["playerId"].isin(freiburg_player_ids)]
 players_df["isStarter"] = players_df["playerId"].isin(freiburg_starter_ids)
 selected_raw_cols = [c for c in selected_kpis["raw_col"].tolist() if c in players_df.columns]
+# merging the extra KPIs was mostly helped by LLM
 pct_cols = [c for c in selected_kpis["pct_col"].tolist() if c in players_df.columns]
 label_map = selected_kpis.set_index("raw_col")["label"].to_dict()
 players_df = compute_scores(players_df, pct_cols)
@@ -92,10 +99,10 @@ display_df = players_df[display_cols]
 start_df = display_df[display_df["isStarter"] == True].drop(columns="isStarter").reset_index(drop=True)
 substitute_df = display_df[display_df["isStarter"] == False].drop(columns="isStarter").reset_index(drop=True)
 
-def pad(lo, hi, frac=0.05):
-    span = hi - lo
-    p = span * frac if span else 1.0
-    return lo - p, hi + p
+# def pad(lo, hi, frac=0.05):
+#     span = hi - lo
+#     p = span * frac if span else 1.0
+#     return lo - p, hi + p
 
 column_config = {}
 # for col in selected_cols:
@@ -255,7 +262,6 @@ else:
     #     fig = plot_cluster(cluster_df, cluster_labels, target_player_id, options)
     #     st.pyplot(fig)
     #     plt.close(fig)
-    st.caption("Shape = line: ● DEF, ▲ MID, ◆ FWD, ■ GK. Ring = selected player.")
 
     target_name = players_df.loc[players_df["playerId"] == target_player_id, "playerName"].iloc[0]
     target_archetype = cluster_labels[cluster_df.loc[cluster_df["playerId"] == target_player_id, "cluster"].iloc[0]]
