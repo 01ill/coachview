@@ -5,3 +5,4 @@ pandas
 mpl-soccer
 plotly
 scikit-learn
+highlight-text

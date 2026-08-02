@@ -1,0 +1,14 @@
+[project]
+name = "coach-mode"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "highlight-text>=0.2",
+    "joblib>=1.5.3",
+    "mplsoccer>=1.6.1",
+    "plotly>=6.9.0",
+    "scikit-learn>=1.9.0",
+    "streamlit>=1.59.2",
+]

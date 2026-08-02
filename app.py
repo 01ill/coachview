@@ -10,13 +10,14 @@ def sidebar_select_match():
     selected_match = st.sidebar.selectbox(
         "Match", 
         options=matches.index,
-        format_func=lambda i: f"{matches.loc[i, 'id']} - {matches.loc[i, "homeSquadName"]} - {matches.loc[i, "awaySquadName"]}"
+        format_func=lambda i: f"{matches.loc[i, 'id']} - {matches.loc[i, 'homeSquadName']} - {matches.loc[i, 'awaySquadName']}"
     )
     return matches, matches.loc[selected_match]
 
 main_page = st.Page("pages/main.py", title="Main Page")
 preparation_page = st.Page("pages/substitutions.py", title="Substitutions")
-pg = st.navigation([main_page, preparation_page])
+player_clusters_page = st.Page("pages/player_clusters.py", title="Player's Performance Cluster")
+pg = st.navigation([main_page, preparation_page, player_clusters_page])
 
 matches, selected_match = sidebar_select_match()
 st.session_state.matches = matches

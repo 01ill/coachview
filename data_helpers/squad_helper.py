@@ -26,5 +26,5 @@ def merge_squadnames_matches(matches: pd.DataFrame, squads: pd.DataFrame = None)
     squad_name_map = squads.rename(columns={"id": "squadId"}).set_index("squadId")["name"]
     matches["homeSquadName"] = matches["homeSquadId"].map(squad_name_map)
     matches["awaySquadName"] = matches["awaySquadId"].map(squad_name_map)
-    matches["label"] = f"{matches["homeSquadName"]} - {matches["awaySquadName"]}"
+    matches["label"] = matches["homeSquadName"] + " - " + matches["awaySquadName"]
     return matches

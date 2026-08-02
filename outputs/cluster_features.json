@@ -1,0 +1,19 @@
+[
+    "passes_per90",
+    "pass_success_rate",
+    "dribble_success_rate",
+    "shots_per90",
+    "total_pxt_per90",
+    "final_third_actions_per90",
+    "opponent_box_actions_per90",
+    "between_lines_receptions_per90",
+    "wide_availability_per90",
+    "box_availability_per90",
+    "hold_up_actions_per90",
+    "interceptions_per90",
+    "loose_ball_regains_per90",
+    "ground_duels_per90",
+    "clearances_per90",
+    "blocks_per90",
+    "high_pressure_actions_per90"
+]
