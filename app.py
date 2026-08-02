@@ -1,7 +1,7 @@
 import streamlit as st
 from data_helpers.match_helper import load_freiburg_matches
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="SCF Coachview", page_icon="⚽")
 
 df_matches, df_matches_scf = load_freiburg_matches()
 
@@ -14,7 +14,7 @@ def sidebar_select_match():
     )
     return matches, matches.loc[selected_match]
 
-main_page = st.Page("pages/main.py", title="Main Page")
+main_page = st.Page("pages/main.py", title="Introduction")
 seasonal_page= st.Page("pages/season_insight.py", title="Season Shot Profiles")
 shots_page = st.Page("pages/shots.py", title="Shot Analysis")
 preparation_page = st.Page("pages/substitutions.py", title="Substitutions")
