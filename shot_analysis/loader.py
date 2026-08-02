@@ -32,7 +32,7 @@ TEAM_NAMES = {
 
 def load_match(match_id):
 
-    event_json_path = f".\\open-data\\data\\events\\events_{match_id}.json"
+    event_json_path = EVENTS_DIR / f"events_{match_id}.json"
 
     with open(event_json_path, "r") as f:
         raw_events = json.load(f)
