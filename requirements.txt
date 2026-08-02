@@ -2,7 +2,8 @@ streamlit
 matplotlib
 numpy
 pandas
-mpl-soccer
+mplsoccer
 plotly
 scikit-learn
 highlight-text
+kloppy

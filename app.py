@@ -15,9 +15,11 @@ def sidebar_select_match():
     return matches, matches.loc[selected_match]
 
 main_page = st.Page("pages/main.py", title="Main Page")
+seasonal_page= st.Page("pages/season_insight.py", title="Season Shot Profiles")
+shots_page = st.Page("pages/shots.py", title="Shot Analysis")
 preparation_page = st.Page("pages/substitutions.py", title="Substitutions")
 player_clusters_page = st.Page("pages/player_clusters.py", title="Player's Performance Cluster")
-pg = st.navigation([main_page, preparation_page, player_clusters_page])
+pg = st.navigation([main_page, seasonal_page, shots_page, preparation_page, player_clusters_page])
 
 matches, selected_match = sidebar_select_match()
 st.session_state.matches = matches
