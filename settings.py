@@ -6,6 +6,7 @@ FREIBURG_ID = 34
 BASE_DIR = str(pathlib.Path().resolve())
 IMPECT_DIR = os.path.join(BASE_DIR, 'open-data', 'data')
 DATA_DIR = os.path.join(BASE_DIR, 'data')
+EXTRA_DATA_DIR = os.path.join(BASE_DIR, 'extra_data')
 PCT_BY_LINE = True
 RANDOM_STATE = 308
 PLOTLY_CLUSTER = True

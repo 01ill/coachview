@@ -3,7 +3,7 @@ import json
 import os
 import pandas as pd
 import streamlit as st
-from data_helpers.kpi_helper import kpi_long_df, load_player_kpi, get_player_kpi, kpi_percentiles, kpi_statistics
+from data_helpers.kpi_helper import kpi_long_df, load_player_kpi, get_player_kpi, kpi_percentiles, kpi_statistics, merge_extra_kpi
 
 POSITION_MAP = {
     "GOALKEEPER": "GK",
@@ -61,9 +61,12 @@ def player_pipeline(matches):
     players_df = get_player_kpi(matches, long_df, df_kpi_all)
     players_df = merge_playernames(players_df)
     players_df = merge_playerpositions(players_df, long_df)
+    players_df = merge_extra_kpi(players_df, matches)
     players_df = kpi_percentiles(players_df)
 
-    kpi_columns_all = [c for c in players_df.columns if c.startswith("kpi_")]
+    kpi_columns_all = [
+        c for c in players_df.columns
+        if c.startswith("kpi_") and not c.endswith(("_avg", "_pct", "_pct_pos"))]
     n_matches = len(all_match_ids)
     # player_kpi sometimes returns just a None value instead of list with None
     # in this case just replace with 0
