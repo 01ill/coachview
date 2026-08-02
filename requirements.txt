@@ -2,6 +2,7 @@ streamlit
 matplotlib
 numpy
 pandas
-mpl-soccer
+mplsoccer
 plotly
 scikit-learn
+kloppy
