@@ -1,9 +1,9 @@
 import streamlit as st
-from settings import IMPECT_DIR, FREIBURG_ID, PLOTLY_CLUSTER
+from settings import FREIBURG_ID, PLOTLY_CLUSTER
 from highlight_text import fig_text
-import matplotlib.pyplot as plt
+import pandas as pd
 
-from data_helpers.kpi_helper import load_kpi_def
+from data_helpers.kpi_helper import build_kpi_catalog, selected_kpi_columns, EXTRA_KPI_INCLUDED, EXTRA_KPI_LABELS
 from data_helpers.player_helper import load_players, player_pipeline, compute_scores
 from data_helpers.squad_helper import load_lineups
 from data_helpers.cluster_helper import prepare_dataset, cluster_silhuette, cluster_squad, bench_options, plot_cluster_plotly, label_clusters
@@ -18,7 +18,22 @@ st.header("Match Preparation")
 matches = st.session_state.matches
 selected_match = st.session_state.selected_match
 
-df_kpi_def = load_kpi_def()
+# def load_extra_kpi_definitions() -> pd.DataFrame:
+#     rows = []
+#     for feature in EXTRA_KPI_INCLUDED:
+#         rows.append(
+#             {
+#                 "id": f"extra_{feature}",
+#                 "details.label": EXTRA_KPI_LABELS.get(feature, feature.replace("_", " ").title()),
+#                 "details.definition": f"Extra player-match feature: {feature}",
+#             }
+#         )
+#     return pd.DataFrame(rows)
+
+# df_kpi_def = load_kpi_def()
+# df_extra_kpi_def = load_extra_kpi_definitions()
+# df_kpi_def = pd.concat([df_kpi_def, df_extra_kpi_def], ignore_index=True)
+kpi_catalog = build_kpi_catalog()
 DEFAULT_KPI_LABELS = [
     "Goals",
     "Successful Passes",
@@ -33,28 +48,29 @@ DEFAULT_KPI_LABELS = [
     "Won Aerial Duels",
     "Dribbles",
     "Total Shots Blocked",
+    "Opponent Box Actions per 90"
 ]
 def select_kpis():
-    kpi_def = df_kpi_def.reset_index(drop=True)
-    default_idx = kpi_def.index[kpi_def["details.label"].isin(DEFAULT_KPI_LABELS)].tolist()
-    selected_kpis = st.multiselect(
+    default_idx = kpi_catalog.index[kpi_catalog["label"].isin(DEFAULT_KPI_LABELS)].tolist()
+    selected = st.multiselect(
         "KPI Selector",
-        kpi_def.index,
+        kpi_catalog.index,
         default=default_idx,
-        format_func=lambda i: f"{kpi_def.loc[i, "details.label"]} - {kpi_def.loc[i, "details.definition"]}")
-    return kpi_def, kpi_def.loc[selected_kpis]
-
-kpi_def, selected_kpis = select_kpis()
+        format_func=lambda i: kpi_catalog.loc[i, "picker_label"],
+    )
+    return kpi_catalog.loc[selected].copy()
+selected_kpis = select_kpis()
+labels = selected_kpis["label"].tolist()
 
 players_df, long_df, kpi_range = player_pipeline(matches)
 selected_kpi_ids = selected_kpis["id"].tolist()
-selected_cols = [f"kpi90_{int(k)}" for k in selected_kpi_ids]
-selected_cols = [c for c in selected_cols if c in players_df.columns]
-avg_cols = [f"avg_{col}_pct" for col in selected_cols]
-label_map = dict(zip(
-    [f"kpi90_{int(k)}" for k in selected_kpi_ids],
-    selected_kpis["details.label"]
-))
+# selected_cols = [f"kpi90_{int(k)}" for k in selected_kpi_ids]
+# selected_cols = [c for c in selected_cols if c in players_df.columns]
+#avg_cols = [f"avg_{col}_pct" for col in selected_cols]
+# label_map = dict(zip(
+#     [f"kpi90_{int(k)}" for k in selected_kpi_ids],
+#     selected_kpis["details.label"]
+# ))
 # now find the players of the specific match
 freiburg_is_home = selected_match.homeSquadId == FREIBURG_ID
 freiburg_players = load_players(FREIBURG_ID)
@@ -66,9 +82,12 @@ lineup_df = load_lineups(selected_match.id)
 freiburg_starter_ids = [player["playerId"] for player in lineup_df.loc[0, "squadHome.startingPositions" if freiburg_is_home else "squadAway.startingPositions"]]
 players_df = players_df[players_df["playerId"].isin(freiburg_player_ids)]
 players_df["isStarter"] = players_df["playerId"].isin(freiburg_starter_ids)
-players_df = compute_scores(players_df, avg_cols)
+selected_raw_cols = [c for c in selected_kpis["raw_col"].tolist() if c in players_df.columns]
+pct_cols = [c for c in selected_kpis["pct_col"].tolist() if c in players_df.columns]
+label_map = selected_kpis.set_index("raw_col")["label"].to_dict()
+players_df = compute_scores(players_df, pct_cols)
 
-display_cols = ["playerName", "score", "playerPosition", "playerLine", "isStarter", "playerId"] + selected_cols
+display_cols = ["playerName", "score", "playerPosition", "playerLine", "isStarter", "playerId"] + selected_raw_cols
 display_df = players_df[display_cols]
 start_df = display_df[display_df["isStarter"] == True].drop(columns="isStarter").reset_index(drop=True)
 substitute_df = display_df[display_df["isStarter"] == False].drop(columns="isStarter").reset_index(drop=True)
@@ -138,7 +157,7 @@ from mplsoccer import PyPizza
 playerId1 = st.session_state.selected_start_player
 playerId2 = st.session_state.selected_substitute_player
 
-if not selected_cols:
+if not pct_cols:
     st.info("Pick at least one KPI to compare players")
 elif playerId1 is None or playerId2 is None:
     st.info("Select two players to compare")
@@ -149,10 +168,9 @@ else:
     player_name2 = players_df[players_df["playerId"] == playerId2].playerName.iloc[0]
     player_pos1 = players_df[players_df["playerId"] == playerId1].playerPosition.iloc[0]
     player_pos2 = players_df[players_df["playerId"] == playerId2].playerPosition.iloc[0]
-    values1 = players_df.loc[players_df["playerId"] == playerId1, avg_cols].round(1).iloc[0].tolist()
-    values2 = players_df.loc[players_df["playerId"] == playerId2, avg_cols].round(1).iloc[0].tolist()
-    labels = selected_kpis["details.label"].tolist()
-    labels = [label_map[col] for col in selected_cols]
+    values1 = players_df.loc[players_df["playerId"] == playerId1, pct_cols].round(1).iloc[0].tolist()
+    values2 = players_df.loc[players_df["playerId"] == playerId2, pct_cols].round(1).iloc[0].tolist()
+    labels = selected_kpis["label"].tolist()    
     # instantiate PyPizza class
     baker = PyPizza(
         params=labels,                  # list of parameters
@@ -216,17 +234,17 @@ st.subheader("Squad Clustering")
 target_player_id = st.session_state.selected_start_player
 if target_player_id is None:
     st.info("Select a starting player above first.")
-elif selected_cols is None or len(selected_cols) < 2:
+elif len(pct_cols) < 2:
     st.info("Select two or more KPIs to generate the clustering")
 else:
     exclude_gk = st.checkbox("Exclude goalkeepers", value=True)
     exclude_positions = ["GOALKEEPER"] if exclude_gk else None
-    cluster_df, X = prepare_dataset(players_df, freiburg_player_ids, avg_cols, exclude_positions)
+    cluster_df, X = prepare_dataset(players_df, freiburg_player_ids, pct_cols, exclude_positions)
     best_k, _ = cluster_silhuette(X)
     n_clusters = st.slider(f"Number of clusters. Best silhuette score: {best_k}", 2, min(8, len(cluster_df) - 1), best_k)
 
     cluster_df = cluster_squad(cluster_df, X, n_clusters)
-    cluster_labels = label_clusters(cluster_df, avg_cols, label_map)
+    cluster_labels = label_clusters(cluster_df, pct_cols, label_map)
     bench_ids = set(freiburg_player_ids) - set(freiburg_starter_ids)
     options = bench_options(cluster_df, X, target_player_id, bench_only_ids=bench_ids)
     only_benched = st.checkbox("Show only benched players", value=True)
